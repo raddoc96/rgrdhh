@@ -160,12 +160,38 @@ Important: Your output is for experienced Radiologists, so maintain a profession
     });
 
     let responseText = response.text;
-    const groundingChunks: GroundingChunk[] | undefined = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
+    
+    // Process sources from both Google Search and URL Context tool
     let sources: GroundingSource[] = [];
+
+    // Process Google Search grounding chunks
+    const groundingChunks: GroundingChunk[] | undefined = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
     if (groundingChunks) {
         sources = groundingChunks
             .map(chunk => chunk.web)
             .filter((web): web is { uri: string; title: string } => !!web && !!web.uri && !!web.title);
+    }
+    
+    // Process urlContext tool metadata, based on user-provided documentation
+    const urlContextMetadata: any[] | undefined = (response.candidates?.[0] as any)?.urlContextMetadata;
+    if (urlContextMetadata && Array.isArray(urlContextMetadata)) {
+        const successfulUrlSources = urlContextMetadata
+            .filter(meta => meta.urlRetrievalStatus === 'URL_RETRIEVAL_STATUS_SUCCESS' && meta.retrievedUrl)
+            .map(meta => ({ uri: meta.retrievedUrl, title: meta.retrievedUrl }));
+
+        successfulUrlSources.forEach(urlSource => {
+            if (!sources.some(s => s.uri === urlSource.uri)) {
+                sources.push(urlSource);
+            }
+        });
+
+        const failedUrls = urlContextMetadata
+            .filter(meta => meta.urlRetrievalStatus !== 'URL_RETRIEVAL_STATUS_SUCCESS')
+            .map(meta => meta.retrievedUrl);
+        
+        if (failedUrls.length > 0) {
+            console.warn(`[Gemini Service] Was unable to access the following URLs, so they were not included in the context: ${failedUrls.join(', ')}`);
+        }
     }
     
     // If googleSearch was used, we must manually parse the JSON from the text response.
