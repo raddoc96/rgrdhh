@@ -1,0 +1,7 @@
+{
+  "name": "Answer generation for Radiology questions",
+  "description": "Answer generation for Radiology questions",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
