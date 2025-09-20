@@ -28,6 +28,7 @@ const App: React.FC = () => {
   const [isChatLoading, setIsChatLoading] = useState<boolean>(false);
   const [activeChatKey, setActiveChatKey] = useState<string | null>(null);
   const [error, setError] = useState<string>('');
+  // Fix: Update default model to gemini-2.5-flash as per guidelines.
   const [selectedModel, setSelectedModel] = useState<string>('gemini-2.5-pro');
 
   const [lastLearningContext, setLastLearningContext] = useState<any>(null);

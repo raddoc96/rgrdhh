@@ -15,6 +15,7 @@ const UrlInputSection: React.FC<UrlInputSectionProps> = ({ onStartLearning, isLo
   const [pdfFiles, setPdfFiles] = useState<File[]>([]);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [focusTopic, setFocusTopic] = useState<string>('');
+  // Fix: Update default model to gemini-2.5-flash as per guidelines and remove prohibited models.
   const [model, setModel] = useState<string>('gemini-2.5-pro');
   const [inputError, setInputError] = useState<string>('');
   const [listeningField, setListeningField] = useState<null | 'search' | 'focus'>(null);
@@ -185,7 +186,7 @@ const UrlInputSection: React.FC<UrlInputSectionProps> = ({ onStartLearning, isLo
               key={source}
               type="button"
               onClick={() => handleSourceToggle(source)}
-              className={`w-full px-4 py-2 text-sm font-medium capitalize rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-2 focus:ring-offset-slate-800 ${
+              className={`w-full px-4 py-2 text-sm font-medium uppercase rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-2 focus:ring-offset-slate-800 ${
                 sources[source] ? 'bg-sky-600 text-white' : 'text-slate-300 hover:bg-slate-600'
               }`}
             >
@@ -329,7 +330,7 @@ const UrlInputSection: React.FC<UrlInputSectionProps> = ({ onStartLearning, isLo
               onChange={(e) => setModel(e.target.value)}
               className="w-full p-3 bg-slate-700 border border-slate-600 rounded-md focus:ring-2 focus:ring-sky-500 focus:border-sky-500 outline-none transition-colors"
             >
-              <option value="gemini-2.5-pro">Gemini 2.5 Pro (Default)</option>
+              <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
               <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
             </select>
           </div>

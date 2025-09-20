@@ -68,7 +68,7 @@ const createDocxElementsFromMarkdown = (markdownText: string): (Paragraph | Tabl
   const elements: (Paragraph | Table)[] = [];
   const tokens = marked.lexer(markdownText);
 
-  // Fix: Refactor paragraph creation to pass options to the constructor, as Paragraph instances are immutable.
+  // Fix: Refactor paragraph creation to pass options to the constructor, as Paragraph instances are immutable. This resolves errors with assigning to read-only properties.
   const processListItems = (items: any[], isOrdered: boolean, level = 0): Paragraph[] => {
     const listParagraphs: Paragraph[] = [];
     items.forEach(item => {
@@ -159,13 +159,7 @@ const TeachingSection: React.FC<TeachingSectionProps> = ({
     setIsDownloading(true);
 
     try {
-      const children: (Paragraph | Table)[] = [
-        new Paragraph({
-            children: [new TextRun({ text: "Radiology Lesson", bold: true, size: 48 })],
-            heading: HeadingLevel.TITLE,
-        }),
-        new Paragraph({ text: "" }), // Spacer
-      ];
+      const children: (Paragraph | Table)[] = [];
 
       teachingSteps.forEach(step => {
         children.push(new Paragraph({ text: step.section_title, heading: HeadingLevel.HEADING_1 }));

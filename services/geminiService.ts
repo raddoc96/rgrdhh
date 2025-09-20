@@ -37,7 +37,6 @@ export async function getTeachingSections(
     throw new Error("API_KEY is not configured.");
   }
   const ai = new GoogleGenAI({ apiKey: API_KEY });
-  const model = context.model;
 
   const contentPromptParts: Part[] = [];
   const tools: any[] = [];
@@ -46,10 +45,9 @@ export async function getTeachingSections(
 
   // URL context
   if (context.urls && context.urls.length > 0) {
-    const urlList = context.urls.join(', ');
-    sourceDescriptions.push(`the ${context.urls.length > 1 ? 'webpages' : 'webpage'} at the URL(s): ${urlList}`);
-    if (!tools.some(tool => tool.hasOwnProperty('url_context'))) {
-      tools.push({ "url_context": {} });
+    sourceDescriptions.push(`the ${context.urls.length > 1 ? 'webpages' : 'webpage'} at the provided URL(s)`);
+    if (!tools.some(tool => tool.hasOwnProperty('urlContext'))) {
+      tools.push({ "urlContext": {} });
     }
   }
 
@@ -84,6 +82,12 @@ export async function getTeachingSections(
   }
 
   let baseText = `Your analysis should be based on the following merged sources: ${sourceDescriptions.join(' AND ')}. Please synthesize information from all these sources.`;
+  
+  // Add URLs directly to the prompt text for the urlContext tool to process
+  if (context.urls && context.urls.length > 0) {
+    baseText += `\n\nHere are the URLs to use for context:\n${context.urls.join('\n')}`;
+  }
+  
   if (context.searchQuery) {
     baseText += `\n\nWhen performing the Google Search, focus on this query: "${context.searchQuery}".`;
   }
@@ -133,25 +137,29 @@ Important: Your output is for experienced Radiologists, so maintain a profession
     safetySettings: safetySettings,
   };
 
-  const useGoogleSearch = tools.some(tool => tool.hasOwnProperty('googleSearch'));
+  const useTools = tools.length > 0;
 
-  if (useGoogleSearch) {
-    // Per documentation, when using googleSearch tool, don't set responseMimeType or responseSchema
-    systemInstruction += "\nWhen creating the teaching sections, you MUST ground your entire response in the search results provided by the Google Search tool. The sources you use will be displayed to the user.";
-    systemInstruction += `\nIf after searching you determine that the most relevant information is contained within PDF documents that you cannot access, you MUST NOT generate the teaching sections. Instead, your entire response MUST be a valid JSON object with a single key 'missing_pdfs', which is an array of strings, where each string is the URL of a PDF you need the user to upload. Example: {"missing_pdfs": ["https://example.com/study.pdf"]}. Only use this format if you are confident that the primary information is in an inaccessible PDF. Otherwise, the final output MUST be a valid JSON array of objects, strictly adhering to the provided schema. Do not add any text before or after the JSON. Do not wrap the JSON in markdown backticks.`;
+  if (useTools) {
+    config.tools = tools;
+    const useGoogleSearch = tools.some(tool => tool.hasOwnProperty('googleSearch'));
+
+    if (useGoogleSearch) {
+      // Per documentation, when using googleSearch tool, don't set responseMimeType or responseSchema
+      systemInstruction += "\nWhen creating the teaching sections, you MUST ground your entire response in the search results provided by the Google Search tool. The sources you use will be displayed to the user.";
+      systemInstruction += `\nIf after searching you determine that the most relevant information is contained within PDF documents that you cannot access, you MUST NOT generate the teaching sections. Instead, your entire response MUST be a valid JSON object with a single key 'missing_pdfs', which is an array of strings, where each string is the URL of a PDF you need the user to upload. Example: {"missing_pdfs": ["https://example.com/study.pdf"]}. Only use this format if you are confident that the primary information is in an inaccessible PDF. Otherwise, the final output MUST be a valid JSON array of objects, strictly adhering to the provided schema. Do not add any text before or after the JSON. Do not wrap the JSON in markdown backticks.`;
+    } else {
+        // This case is for when urlContext is used, but not googleSearch
+        systemInstruction += `\nThe final output MUST be a valid JSON array of objects, strictly adhering to the provided schema. Do not add any text before or after the JSON. Do not wrap the JSON in markdown backticks.`;
+    }
   } else {
     config.responseMimeType = "application/json";
     config.responseSchema = schema;
     systemInstruction += `\nThe final output MUST be a valid JSON array of objects, strictly adhering to the provided schema. Do not add any text before or after the JSON.`;
   }
 
-  if (tools.length > 0) {
-      config.tools = tools;
-  }
-  
   try {
     const response: GenerateContentResponse = await ai.models.generateContent({
-      model: model,
+      model: context.model,
       contents: { role: 'user', parts: contentPromptParts },
       config: {
         systemInstruction,
@@ -163,19 +171,20 @@ Important: Your output is for experienced Radiologists, so maintain a profession
     
     // Process sources from both Google Search and URL Context tool
     let sources: GroundingSource[] = [];
+    const candidate = response.candidates?.[0];
 
     // Process Google Search grounding chunks
-    const groundingChunks: GroundingChunk[] | undefined = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
+    const groundingChunks: GroundingChunk[] | undefined = candidate?.groundingMetadata?.groundingChunks;
     if (groundingChunks) {
         sources = groundingChunks
             .map(chunk => chunk.web)
             .filter((web): web is { uri: string; title: string } => !!web && !!web.uri && !!web.title);
     }
     
-    // Process urlContext tool metadata, based on user-provided documentation
-    const urlContextMetadata: any[] | undefined = (response.candidates?.[0] as any)?.urlContextMetadata;
-    if (urlContextMetadata && Array.isArray(urlContextMetadata)) {
-        const successfulUrlSources = urlContextMetadata
+    // Process urlContext tool metadata, using the correct nested property 'urlMetadata'
+    const urlMetadata: any[] | undefined = candidate?.urlContextMetadata?.urlMetadata;
+    if (urlMetadata && Array.isArray(urlMetadata)) {
+        const successfulUrlSources = urlMetadata
             .filter(meta => meta.urlRetrievalStatus === 'URL_RETRIEVAL_STATUS_SUCCESS' && meta.retrievedUrl)
             .map(meta => ({ uri: meta.retrievedUrl, title: meta.retrievedUrl }));
 
@@ -185,7 +194,7 @@ Important: Your output is for experienced Radiologists, so maintain a profession
             }
         });
 
-        const failedUrls = urlContextMetadata
+        const failedUrls = urlMetadata
             .filter(meta => meta.urlRetrievalStatus !== 'URL_RETRIEVAL_STATUS_SUCCESS')
             .map(meta => meta.retrievedUrl);
         
@@ -194,8 +203,8 @@ Important: Your output is for experienced Radiologists, so maintain a profession
         }
     }
     
-    // If googleSearch was used, we must manually parse the JSON from the text response.
-    if (useGoogleSearch) {
+    // If any tool was used, we must manually parse the JSON from the text response.
+    if (useTools) {
       const jsonMatch = responseText.match(/```(json)?\s*([\s\S]*?)\s*```/);
       if (jsonMatch && jsonMatch[2]) {
         responseText = jsonMatch[2];
@@ -204,7 +213,7 @@ Important: Your output is for experienced Radiologists, so maintain a profession
         if (rawJsonMatch) {
             responseText = rawJsonMatch[0];
         } else {
-            throw new Error("The AI returned a non-JSON response when Google Search was used. Could not find a valid JSON object or array.");
+            throw new Error("The AI returned a non-JSON response when a tool was used. Could not find a valid JSON object or array.");
         }
       }
     }
